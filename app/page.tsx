@@ -73,62 +73,55 @@ export default function Home() {
 };
 
 return (
-  <div className="min-h-screen bg-gray-100 flex justify-center py-16">
-    <div className="w-full max-w-3xl bg-white shadow-lg rounded-xl p-10">
-      <h1 className="text-3xl font-bold mb-6 text-center">
+  <div className="min-h-screen bg-gray-100 flex justify-center py-12 px-4">
+    <div className="w-full max-w-3xl">
+
+      {/* 제목 */}
+      <h1 className="text-4xl font-bold text-center mb-10">
         GAPVIA AI 코칭
       </h1>
 
-      <textarea
-        className="w-full border border-gray-300 p-4 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-black"
-        rows={4}
-        placeholder="질문을 입력하세요..."
-        value={question}
-        onChange={(e) => setQuestion(e.target.value)}
-      />
+      {/* 질문 입력 카드 */}
+      <div className="bg-white shadow-md rounded-xl p-6 mb-10">
+        <textarea
+          className="w-full border rounded-lg p-4 mb-4 focus:outline-none focus:ring-2 focus:ring-black"
+          rows={4}
+          placeholder="질문을 입력하세요..."
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+        />
 
-      <div className="flex justify-end">
         <button
           onClick={handleAsk}
-          className="bg-black text-white px-6 py-2 rounded-lg hover:bg-gray-800 transition"
+          className="w-full bg-black text-white py-3 rounded-lg hover:bg-gray-800 transition"
         >
           {loading ? "답변 생성 중..." : "질문하기"}
         </button>
       </div>
 
-      {answer && (
-        <div className="mt-8 p-6 border border-gray-200 rounded-lg bg-gray-50 whitespace-pre-wrap text-gray-800 leading-relaxed relative">
-          <button
-            onClick={handleCopy}
-            className="absolute top-3 right-3 text-sm bg-black text-white px-3 py-1 rounded hover:bg-gray-800"
-          >
-             복사
-          </button>
-          {answer}
-        </div>
-      )}      
-
-      {/* 🔥 여기 아래에 붙이세요 */}
+      {/* 질문 기록 */}
       {history.length > 0 && (
-        <div className="mt-12">
-          <h2 className="text-xl font-semibold mb-4">질문 기록</h2>
+        <div>
+          <h2 className="text-2xl font-semibold mb-6">질문 기록</h2>
 
-          <div className="space-y-4">
+          <div className="space-y-6">
             {history.map((item, index) => (
               <div
                 key={index}
-                className="p-4 border rounded-lg bg-white"
+                className="bg-white shadow-sm rounded-xl p-6 border"
               >
-                <p className="font-semibold">Q: {item.question}</p>
-                <p className="mt-2 text-gray-700 whitespace-pre-wrap">
-                  A: {item.answer}
+                <p className="font-semibold text-lg">
+                  Q. {item.question}
                 </p>
+
+                <div className="mt-4 text-gray-700 whitespace-pre-wrap leading-relaxed">
+                  {item.answer}
+                </div>
               </div>
             ))}
           </div>
         </div>
-      )}      
-
+      )}
     </div>
   </div>
 );
