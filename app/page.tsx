@@ -20,6 +20,13 @@ export default function Home() {
     setHistory(updated);
     localStorage.setItem("history", JSON.stringify(updated));
   };
+  const handleClearAll = () => {
+    const confirmed = window.confirm("전체 질문을 삭제하시겠습니까?");
+    if (!confirmed) return;
+
+    setHistory([]);
+    localStorage.removeItem("history");
+  };
 
   // ✅ 그 다음 useEffect
   useEffect(() => {
@@ -110,7 +117,16 @@ return (
       {/* 질문 기록 */}
       {history.length > 0 && (
         <div>
-          <h2 className="text-2xl font-semibold mb-6">질문 기록</h2>
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-2xl font-semibold">질문 기록</h2>
+
+            <button
+              onClick={handleClearAll}
+              className="text-sm text-red-600 hover:text-red-800"
+            >
+              전체 삭제
+            </button>
+          </div>
 
           <div className="space-y-6">
             {history.map((item, index) => {
