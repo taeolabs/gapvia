@@ -12,6 +12,12 @@ export default function Home() {
   >([]);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
 
+  const handleDelete = (index: number) => {
+    const updated = history.filter((_, i) => i !== index);
+      setHistory(updated);
+      localStorage.setItem("history", JSON.stringify(updated));
+  };
+
   // ✅ 그 다음 useEffect
   useEffect(() => {
     const fetchHistory = async () => {
@@ -113,19 +119,32 @@ return (
                   className="bg-white shadow-sm rounded-xl border"
                 >
                   {/* 질문 헤더 */}
-                  <div
-                    onClick={() =>
-                      setOpenIndex(isOpen ? null : index)
-                    }
-                    className="cursor-pointer p-6 flex justify-between items-center"
-                  >
-                    <p className="font-semibold text-lg">
-                      Q. {item.question}
-                    </p>
+                  <div className="p-6 flex justify-between items-center">
 
-                    <span className="text-sm text-gray-500">
-                      {isOpen ? "▲" : "▼"}
-                    </span>
+                    {/* 왼쪽: 질문 클릭 영역 */}
+                    <div
+                      onClick={() =>
+                        setOpenIndex(isOpen ? null : index)
+                      }
+                      className="cursor-pointer flex items-center gap-3"
+                    >
+                      <p className="font-semibold text-lg">
+                        Q. {item.question}
+                      </p>
+
+                      <span className="text-sm text-gray-500">
+                        {isOpen ? "▲" : "▼"}
+                      </span>
+                    </div>
+
+                    {/* 오른쪽: 삭제 버튼 */}
+                    <button
+                      onClick={() => handleDelete(index)}
+                      className="text-sm text-red-500 hover:text-red-700"
+                    >
+                      삭제
+                    </button>
+
                   </div>
 
                   {/* 답변 영역 */}
