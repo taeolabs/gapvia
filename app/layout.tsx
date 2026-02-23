@@ -1,8 +1,9 @@
+import type { Metadata } from "next";
 import "./globals.css";
 
-export const metadata = {
-  title: "GAPVIA AI 코칭",
-  description: "AI 업무 코칭 서비스",
+export const metadata: Metadata = {
+  title: "GAPVIA",
+  description: "AI Coaching",
 };
 
 export default function RootLayout({
