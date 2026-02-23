@@ -13,9 +13,12 @@ export default function Home() {
   const [openIndex, setOpenIndex] = useState<number | null>(null);
 
   const handleDelete = (index: number) => {
+    const confirmed = window.confirm("정말 삭제하시겠습니까?");
+    if (!confirmed) return;
+
     const updated = history.filter((_, i) => i !== index);
-      setHistory(updated);
-      localStorage.setItem("history", JSON.stringify(updated));
+    setHistory(updated);
+    localStorage.setItem("history", JSON.stringify(updated));
   };
 
   // ✅ 그 다음 useEffect
