@@ -6,6 +6,11 @@ export default function Home() {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [loading, setLoading] = useState(false);
+  const handleCopy = async () => {
+  if (!answer) return;
+  await navigator.clipboard.writeText(answer);
+  alert("복사되었습니다.");
+  };
 
   const handleAsk = async () => {
     if (!question) return;
@@ -54,10 +59,17 @@ return (
       </div>
 
       {answer && (
-        <div className="mt-8 p-6 border border-gray-200 rounded-lg bg-gray-50 whitespace-pre-wrap text-gray-800 leading-relaxed">
+        <div className="mt-8 p-6 border border-gray-200 rounded-lg bg-gray-50 whitespace-pre-wrap text-gray-800 leading-relaxed relative">
+          <button
+            onClick={handleCopy}
+            className="absolute top-3 right-3 text-sm bg-black text-white px-3 py-1 rounded hover:bg-gray-800"
+          >
+             복사
+          </button>
           {answer}
         </div>
-      )}
+      )}      
+
     </div>
   </div>
 );
