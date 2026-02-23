@@ -7,11 +7,10 @@ export default function Home() {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [loading, setLoading] = useState(false);
-
-  // ✅ history state 먼저 선언
   const [history, setHistory] = useState<
     { question: string; answer: string }[]
   >([]);
+  const [openIndex, setOpenIndex] = useState<number | null>(null);
 
   // ✅ 그 다음 useEffect
   useEffect(() => {
@@ -105,21 +104,41 @@ return (
           <h2 className="text-2xl font-semibold mb-6">질문 기록</h2>
 
           <div className="space-y-6">
-            {history.map((item, index) => (
-              <div
-                key={index}
-                className="bg-white shadow-sm rounded-xl p-6 border"
-              >
-                <p className="font-semibold text-lg">
-                  Q. {item.question}
-                </p>
+            {history.map((item, index) => {
+              const isOpen = openIndex === index;
 
-                <div className="mt-4 text-gray-700 whitespace-pre-wrap leading-relaxed">
-                  {item.answer}
+              return (
+                <div
+                  key={index}
+                  className="bg-white shadow-sm rounded-xl border"
+                >
+                  {/* 질문 헤더 */}
+                  <div
+                    onClick={() =>
+                      setOpenIndex(isOpen ? null : index)
+                    }
+                    className="cursor-pointer p-6 flex justify-between items-center"
+                  >
+                    <p className="font-semibold text-lg">
+                      Q. {item.question}
+                    </p>
+
+                    <span className="text-sm text-gray-500">
+                      {isOpen ? "▲" : "▼"}
+                    </span>
+                  </div>
+
+                  {/* 답변 영역 */}
+                  {isOpen && (
+                    <div className="px-6 pb-6 text-gray-700 whitespace-pre-wrap leading-relaxed border-t">
+                      {item.answer}
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
+
         </div>
       )}
     </div>
