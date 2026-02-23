@@ -16,15 +16,13 @@ export default function Home() {
     try {
       const res = await fetch("/api/ask", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question }),
       });
 
       const data = await res.json();
       setAnswer(data.answer);
-    } catch (error) {
+    } catch {
       setAnswer("에러가 발생했습니다.");
     }
 
@@ -32,7 +30,7 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 text-black">
+    <div className="min-h-screen bg-gray-100 text-black p-10">
       <h1 className="text-3xl font-bold mb-6">GAPVIA AI 코칭</h1>
 
       <textarea
