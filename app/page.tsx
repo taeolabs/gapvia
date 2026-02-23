@@ -32,7 +32,7 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen p-10 bg-gray-50">
+    <div className="min-h-screen bg-gray-100 text-black">
       <h1 className="text-3xl font-bold mb-6">GAPVIA AI 코칭</h1>
 
       <textarea
@@ -51,7 +51,7 @@ export default function Home() {
       </button>
 
       {answer && (
-        <div className="mt-8 p-4 border rounded bg-white whitespace-pre-wrap">
+        <div className="mt-8 p-4 border rounded bg-white text-black whitespace-pre-wrap">
           {answer}
         </div>
       )}
