@@ -1,5 +1,6 @@
 "use client";
 
+import { supabase } from "@/lib/supabase";
 import { useState, useEffect } from "react";
 
 export default function Home() {
@@ -14,10 +15,23 @@ export default function Home() {
 
   // ✅ 그 다음 useEffect
   useEffect(() => {
-    const saved = localStorage.getItem("ai_history");
-    if (saved) {
-      setHistory(JSON.parse(saved));
-    }
+    const fetchHistory = async () => {
+      const { data, error } = await supabase
+        .from("questions")
+        .select("id, content, answers ( ai_draft )")
+        .order("created_at", { ascending: false });
+
+      if (!error && data) {
+        const formatted = data.map((item) => ({
+          question: item.content,
+          answer: item.answers?.[0]?.ai_draft || "",
+        }));
+
+        setHistory(formatted);
+      }
+    };
+
+    fetchHistory();
   }, []);
 
   const handleCopy = async () => {
@@ -50,7 +64,6 @@ export default function Home() {
     const updatedHistory = [newItem, ...history];
 
     setHistory(updatedHistory);
-    localStorage.setItem("ai_history", JSON.stringify(updatedHistory));
 
   } catch (error) {
     setAnswer("에러가 발생했습니다.");
