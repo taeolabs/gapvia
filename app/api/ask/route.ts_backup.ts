@@ -211,13 +211,27 @@ export async function POST(req: Request) {
       throw err;
     }
 
-    /* 7️⃣ DB 저장 (단순화 버전) */
-    await supabase.from("questions").insert({
-      content: normalized,
-      question_hash: hash,
-      embedding,
-      answer: finalAnswer,   // 👈 이 줄 추가
-    });
+    /* ================================
+       7️⃣ DB 저장
+    =================================*/
+    const { data: questionData } = await supabase
+      .from("questions")
+      .insert({
+        content: normalized,
+        question_hash: hash,
+        embedding,
+        
+      })
+      .select()
+      .single();
+
+    if (questionData) {
+      await supabase.from("ai_answers").insert({
+        question_id: questionData.id,
+        draft_text: finalAnswer,
+        model: "gemini-2.5-flash",
+      });
+    }
 
     /* ================================
        8️⃣ Redis 저장
