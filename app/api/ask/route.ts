@@ -45,6 +45,9 @@ export async function POST(req: Request) {
       );
     }
 
+     /* 🔥 질문 정규화 */
+    const normalizedQuestion = question.trim().toLowerCase();
+
     /* 0️⃣ 동일 질문 캐시 확인 */
     const { data: existingQuestion } = await supabase
       .from("questions")
@@ -156,7 +159,7 @@ ${question}
     const { data: questionData, error: questionError } = await supabase
       .from("questions")
       .insert({
-        content: question,
+        content: normalizedQuestion,
         embedding: embedding,
       })
       .select()
