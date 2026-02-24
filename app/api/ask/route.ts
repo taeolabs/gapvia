@@ -7,7 +7,17 @@ const ai = new GoogleGenAI({
 });
 
 /* ================================
-   1️⃣ Gemini 임베딩 생성
+   1️⃣ 문자열 정규화 함수
+================================ */
+const normalizeText = (text: string) => {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+};
+
+/* ================================
+   2️⃣ Gemini 임베딩 생성
 ================================ */
 const getEmbedding = async (text: string) => {
   const response = await fetch(
@@ -32,7 +42,7 @@ const getEmbedding = async (text: string) => {
 };
 
 /* ================================
-   2️⃣ POST API
+   3️⃣ POST API
 ================================ */
 export async function POST(req: Request) {
   try {
@@ -45,24 +55,26 @@ export async function POST(req: Request) {
       );
     }
 
-     /* 🔥 질문 정규화 */
-    const normalizedQuestion = question.trim().toLowerCase();
+    /* ================================
+       0️⃣ 질문 정규화
+    =================================*/
+    const normalizedQuestion = normalizeText(question);
 
-    /* 0️⃣ 동일 질문 캐시 확인 */
+    /* ================================
+       1️⃣ 완전 동일 질문 캐시 확인
+    =================================*/
     const { data: existingQuestion } = await supabase
       .from("questions")
       .select("id")
-      .eq("content", question)
-      .limit(1)
-      .single();
+      .eq("content", normalizedQuestion)
+      .maybeSingle();
 
     if (existingQuestion) {
       const { data: existingAnswer } = await supabase
         .from("ai_answers")
         .select("draft_text")
         .eq("question_id", existingQuestion.id)
-        .limit(1)
-        .single();
+        .maybeSingle();
 
       if (existingAnswer) {
         return NextResponse.json({
@@ -70,27 +82,24 @@ export async function POST(req: Request) {
           source: "cache",
         });
       }
-    }    
-
-    /* 1️⃣ 임베딩 생성 */
-    const embedding = await getEmbedding(question);
-
-    /* 2️⃣ GoldData 유사도 검색 (Top 3) */
-    const { data: matches, error: matchError } = await supabase.rpc(
-      "match_gold_data",
-      {
-        query_embedding: embedding,
-        match_threshold: 0.7,
-        match_count: 3,
-      }
-    );
-
-    if (matchError) {
-      console.error("GoldData Search Error:", matchError);
     }
 
     /* ================================
-       3️⃣ Gold 완전 매칭 (0.85 이상)
+       2️⃣ 임베딩 생성
+    =================================*/
+    const embedding = await getEmbedding(normalizedQuestion);
+
+    /* ================================
+       3️⃣ GoldData 유사도 검색 (Top 3)
+    =================================*/
+    const { data: matches } = await supabase.rpc("match_gold_data", {
+      query_embedding: embedding,
+      match_threshold: 0.7,
+      match_count: 3,
+    });
+
+    /* ================================
+       4️⃣ Gold 완전 매칭 (0.85 이상)
     =================================*/
     if (matches && matches.length > 0) {
       if (matches[0].similarity >= 0.85) {
@@ -102,7 +111,7 @@ export async function POST(req: Request) {
     }
 
     /* ================================
-       4️⃣ RAG Context 구성 (0.7 이상)
+       5️⃣ RAG Context 구성
     =================================*/
     let contextText = "";
 
@@ -124,39 +133,54 @@ export async function POST(req: Request) {
     }
 
     /* ================================
-       5️⃣ Gemini RAG 프롬프트 생성
+       6️⃣ Gemini 프롬프트 구성
     =================================*/
     const prompt = contextText
       ? `
 당신은 회사 내부 지식 기반 AI 어시스턴트입니다.
 
-아래는 질문과 관련된 참고 문서입니다:
+아래는 관련 참고 문서입니다:
 
 ${contextText}
 
-위 참고 문서를 기반으로 질문에 답변하세요.
-참고 문서에 없는 내용은 추측하지 마세요.
+위 문서를 기반으로 질문에 답하세요.
+문서에 없는 내용은 추측하지 마세요.
 
 질문:
-${question}
+${normalizedQuestion}
 `
-      : question;
+      : normalizedQuestion;
 
     /* ================================
-       6️⃣ Gemini 호출
+       7️⃣ Gemini 호출 (429 방어 포함)
     =================================*/
-    const result = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: prompt,
-    });
+    let finalAnswer = "";
 
-    const finalAnswer =
-      result?.candidates?.[0]?.content?.parts?.[0]?.text || "답변 생성 실패";
+    try {
+      const result = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt,
+      });
+
+      finalAnswer =
+        result?.candidates?.[0]?.content?.parts?.[0]?.text ||
+        "답변 생성 실패";
+    } catch (error: any) {
+      if (error?.status === 429) {
+        return NextResponse.json(
+          { error: "AI 사용량 초과. 잠시 후 다시 시도해주세요." },
+          { status: 429 }
+        );
+      }
+
+      console.error("Gemini Error:", error);
+      throw error;
+    }
 
     /* ================================
-       7️⃣ 질문 저장
+       8️⃣ 질문 저장
     =================================*/
-    const { data: questionData, error: questionError } = await supabase
+    const { data: questionData } = await supabase
       .from("questions")
       .insert({
         content: normalizedQuestion,
@@ -165,12 +189,8 @@ ${question}
       .select()
       .single();
 
-    if (questionError) {
-      console.error("Question Save Error:", questionError);
-    }
-
     /* ================================
-       8️⃣ AI 답변 저장
+       9️⃣ AI 답변 저장
     =================================*/
     if (questionData) {
       await supabase.from("ai_answers").insert({
