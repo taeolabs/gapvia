@@ -1,26 +1,27 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { GoogleGenAI } from "@google/genai";
+import crypto from "crypto";
+import redis from "@/lib/redis";
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY!,
 });
 
 /* ================================
-   1️⃣ 문자열 정규화 함수
+   정규화 + 해시
 ================================ */
-const normalizeText = (text: string) => {
-  return text
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
-};
+const normalizeText = (text: string) =>
+  text.trim().toLowerCase().replace(/\s+/g, " ");
+
+const generateHash = (text: string) =>
+  crypto.createHash("sha256").update(text).digest("hex");
 
 /* ================================
-   2️⃣ Gemini 임베딩 생성
+   임베딩
 ================================ */
 const getEmbedding = async (text: string) => {
-  const response = await fetch(
+  const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${process.env.GEMINI_API_KEY}`,
     {
       method: "POST",
@@ -31,128 +32,126 @@ const getEmbedding = async (text: string) => {
     }
   );
 
-  if (!response.ok) {
-    const err = await response.text();
-    console.error("Embedding API Error:", err);
-    throw new Error("임베딩 생성 실패");
-  }
-
-  const data = await response.json();
+  if (!res.ok) throw new Error("Embedding 실패");
+  const data = await res.json();
   return data.embedding.values;
 };
 
-/* ================================
-   3️⃣ POST API
-================================ */
 export async function POST(req: Request) {
   try {
     const { question } = await req.json();
-
-    if (!question) {
+    if (!question)
       return NextResponse.json(
         { error: "질문이 비어있습니다." },
         { status: 400 }
       );
+
+    const normalized = normalizeText(question);
+    const hash = generateHash(normalized);
+
+    /* ================================
+       1️⃣ Redis 캐시 확인
+    =================================*/
+    if (redis) {
+      try {
+        const cached = await redis.get<string>(`qa:${hash}`);
+        if (cached) {
+          return NextResponse.json({
+            answer: cached,
+            source: "redis-cache",
+          });
+        }
+      } catch (err) {
+        console.error("Redis read error:", err);
+      }
     }
 
     /* ================================
-       0️⃣ 질문 정규화
+       2️⃣ DB Hash 캐시 확인
     =================================*/
-    const normalizedQuestion = normalizeText(question);
-
-    /* ================================
-       1️⃣ 완전 동일 질문 캐시 확인
-    =================================*/
-    const { data: existingQuestion } = await supabase
+    const { data: existing } = await supabase
       .from("questions")
       .select("id")
-      .eq("content", normalizedQuestion)
+      .eq("question_hash", hash)
       .maybeSingle();
 
-    if (existingQuestion) {
+    if (existing) {
       const { data: existingAnswer } = await supabase
         .from("ai_answers")
         .select("draft_text")
-        .eq("question_id", existingQuestion.id)
+        .eq("question_id", existing.id)
         .maybeSingle();
 
       if (existingAnswer) {
+        if (redis) {
+          await redis.set(`qa:${hash}`, existingAnswer.draft_text, {
+            ex: 3600, // 1시간 캐시
+          });
+        }
+
         return NextResponse.json({
           answer: existingAnswer.draft_text,
-          source: "cache",
+          source: "hash-cache",
         });
       }
     }
 
     /* ================================
-       2️⃣ 임베딩 생성
+       3️⃣ 임베딩
     =================================*/
-    const embedding = await getEmbedding(normalizedQuestion);
+    const embedding = await getEmbedding(normalized);
 
     /* ================================
-       3️⃣ GoldData 유사도 검색 (Top 3)
+       4️⃣ Gold 검색
     =================================*/
-    const { data: matches } = await supabase.rpc("match_gold_data", {
-      query_embedding: embedding,
-      match_threshold: 0.7,
-      match_count: 3,
-    });
+    const { data: goldMatches } = await supabase.rpc(
+      "match_gold_data",
+      {
+        query_embedding: embedding,
+        match_threshold: 0.7,
+        match_count: 3,
+      }
+    );
 
-    /* ================================
-       4️⃣ Gold 완전 매칭 (0.85 이상)
-    =================================*/
-    if (matches && matches.length > 0) {
-      if (matches[0].similarity >= 0.85) {
-        return NextResponse.json({
-          answer: matches[0].final_answer,
-          source: "gold",
+    if (
+      goldMatches?.length > 0 &&
+      goldMatches[0].similarity >= 0.85
+    ) {
+      if (redis) {
+        await redis.set(`qa:${hash}`, goldMatches[0].final_answer, {
+          ex: 3600,
         });
       }
+
+      return NextResponse.json({
+        answer: goldMatches[0].final_answer,
+        source: "gold",
+      });
     }
 
     /* ================================
-       5️⃣ RAG Context 구성
+       5️⃣ RAG context 구성
     =================================*/
     let contextText = "";
 
-    if (matches && matches.length > 0) {
-      const validMatches = matches.filter(
+    if (goldMatches?.length > 0) {
+      const valid = goldMatches.filter(
         (m: any) => m.similarity >= 0.7
       );
 
-      if (validMatches.length > 0) {
-        contextText = validMatches
-          .map(
-            (m: any, i: number) =>
-              `참고 문서 ${i + 1}:\n${m.final_answer}\n(유사도: ${m.similarity.toFixed(
-                3
-              )})`
-          )
+      if (valid.length > 0) {
+        contextText = valid
+          .map((m: any) => m.final_answer)
           .join("\n\n");
       }
     }
 
-    /* ================================
-       6️⃣ Gemini 프롬프트 구성
-    =================================*/
     const prompt = contextText
-      ? `
-당신은 회사 내부 지식 기반 AI 어시스턴트입니다.
-
-아래는 관련 참고 문서입니다:
-
-${contextText}
-
-위 문서를 기반으로 질문에 답하세요.
-문서에 없는 내용은 추측하지 마세요.
-
-질문:
-${normalizedQuestion}
-`
-      : normalizedQuestion;
+      ? `다음 참고 문서를 기반으로 답하세요:\n\n${contextText}\n\n질문:\n${normalized}`
+      : normalized;
 
     /* ================================
-       7️⃣ Gemini 호출 (429 방어 포함)
+       6️⃣ Gemini 호출
     =================================*/
     let finalAnswer = "";
 
@@ -165,39 +164,48 @@ ${normalizedQuestion}
       finalAnswer =
         result?.candidates?.[0]?.content?.parts?.[0]?.text ||
         "답변 생성 실패";
-    } catch (error: any) {
-      if (error?.status === 429) {
+    } catch (err: any) {
+      if (err?.status === 429) {
         return NextResponse.json(
-          { error: "AI 사용량 초과. 잠시 후 다시 시도해주세요." },
+          { error: "AI 사용량 초과. 잠시 후 시도해주세요." },
           { status: 429 }
         );
       }
-
-      console.error("Gemini Error:", error);
-      throw error;
+      throw err;
     }
 
     /* ================================
-       8️⃣ 질문 저장
+       7️⃣ DB 저장
     =================================*/
     const { data: questionData } = await supabase
       .from("questions")
       .insert({
-        content: normalizedQuestion,
-        embedding: embedding,
+        content: normalized,
+        question_hash: hash,
+        embedding,
       })
       .select()
       .single();
 
-    /* ================================
-       9️⃣ AI 답변 저장
-    =================================*/
     if (questionData) {
       await supabase.from("ai_answers").insert({
         question_id: questionData.id,
         draft_text: finalAnswer,
         model: "gemini-2.5-flash",
       });
+    }
+
+    /* ================================
+       8️⃣ Redis 저장
+    =================================*/
+    if (redis) {
+      try {
+        await redis.set(`qa:${hash}`, finalAnswer, {
+          ex: 3600,
+        });
+      } catch (err) {
+        console.error("Redis write error:", err);
+      }
     }
 
     return NextResponse.json({
