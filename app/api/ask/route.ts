@@ -10,35 +10,25 @@ const ai = new GoogleGenAI({
    1️⃣ Gemini 임베딩 생성
 ================================ */
 const getEmbedding = async (text: string) => {
-  try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${process.env.GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          content: {
-            parts: [{ text }],
-          },
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      const err = await response.text();
-      console.error("Embedding API Error:", err);
-      throw new Error("임베딩 API 호출 실패");
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${process.env.GEMINI_API_KEY}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        content: { parts: [{ text }] },
+      }),
     }
+  );
 
-    const data = await response.json();
-
-    return data.embedding.values;
-  } catch (error) {
-    console.error("Embedding Error:", error);
+  if (!response.ok) {
+    const err = await response.text();
+    console.error("Embedding API Error:", err);
     throw new Error("임베딩 생성 실패");
   }
+
+  const data = await response.json();
+  return data.embedding.values;
 };
 
 /* ================================
@@ -58,13 +48,13 @@ export async function POST(req: Request) {
     /* 1️⃣ 임베딩 생성 */
     const embedding = await getEmbedding(question);
 
-    /* 2️⃣ GoldData 유사도 검색 */
+    /* 2️⃣ GoldData 유사도 검색 (Top 3) */
     const { data: matches, error: matchError } = await supabase.rpc(
       "match_gold_data",
       {
         query_embedding: embedding,
         match_threshold: 0.7,
-        match_count: 1,
+        match_count: 3,
       }
     );
 
@@ -72,11 +62,11 @@ export async function POST(req: Request) {
       console.error("GoldData Search Error:", matchError);
     }
 
-    /* 3️⃣ Gold 데이터 존재 시 반환 */
+    /* ================================
+       3️⃣ Gold 완전 매칭 (0.85 이상)
+    =================================*/
     if (matches && matches.length > 0) {
-      const similarity = matches[0].similarity;
-
-      if (similarity >= 0.85) {
+      if (matches[0].similarity >= 0.85) {
         return NextResponse.json({
           answer: matches[0].final_answer,
           source: "gold",
@@ -84,16 +74,61 @@ export async function POST(req: Request) {
       }
     }
 
-    /* 4️⃣ Gemini 답변 생성 */
+    /* ================================
+       4️⃣ RAG Context 구성 (0.7 이상)
+    =================================*/
+    let contextText = "";
+
+    if (matches && matches.length > 0) {
+      const validMatches = matches.filter(
+        (m: any) => m.similarity >= 0.7
+      );
+
+      if (validMatches.length > 0) {
+        contextText = validMatches
+          .map(
+            (m: any, i: number) =>
+              `참고 문서 ${i + 1}:\n${m.final_answer}\n(유사도: ${m.similarity.toFixed(
+                3
+              )})`
+          )
+          .join("\n\n");
+      }
+    }
+
+    /* ================================
+       5️⃣ Gemini RAG 프롬프트 생성
+    =================================*/
+    const prompt = contextText
+      ? `
+당신은 회사 내부 지식 기반 AI 어시스턴트입니다.
+
+아래는 질문과 관련된 참고 문서입니다:
+
+${contextText}
+
+위 참고 문서를 기반으로 질문에 답변하세요.
+참고 문서에 없는 내용은 추측하지 마세요.
+
+질문:
+${question}
+`
+      : question;
+
+    /* ================================
+       6️⃣ Gemini 호출
+    =================================*/
     const result = await ai.models.generateContent({
       model: "gemini-2.5-flash",
-      contents: question,
+      contents: prompt,
     });
 
     const finalAnswer =
       result?.candidates?.[0]?.content?.parts?.[0]?.text || "답변 생성 실패";
 
-    /* 5️⃣ 질문 저장 */
+    /* ================================
+       7️⃣ 질문 저장
+    =================================*/
     const { data: questionData, error: questionError } = await supabase
       .from("questions")
       .insert({
@@ -107,7 +142,9 @@ export async function POST(req: Request) {
       console.error("Question Save Error:", questionError);
     }
 
-    /* 6️⃣ AI 답변 저장 */
+    /* ================================
+       8️⃣ AI 답변 저장
+    =================================*/
     if (questionData) {
       await supabase.from("ai_answers").insert({
         question_id: questionData.id,
@@ -118,7 +155,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       answer: finalAnswer,
-      source: "ai",
+      source: contextText ? "rag" : "ai",
     });
   } catch (error) {
     console.error("API Error:", error);
