@@ -45,6 +45,30 @@ export async function POST(req: Request) {
       );
     }
 
+    /* 0️⃣ 동일 질문 캐시 확인 */
+    const { data: existingQuestion } = await supabase
+      .from("questions")
+      .select("id")
+      .eq("content", question)
+      .limit(1)
+      .single();
+
+    if (existingQuestion) {
+      const { data: existingAnswer } = await supabase
+        .from("ai_answers")
+        .select("draft_text")
+        .eq("question_id", existingQuestion.id)
+        .limit(1)
+        .single();
+
+      if (existingAnswer) {
+        return NextResponse.json({
+          answer: existingAnswer.draft_text,
+          source: "cache",
+        });
+      }
+    }    
+
     /* 1️⃣ 임베딩 생성 */
     const embedding = await getEmbedding(question);
 
